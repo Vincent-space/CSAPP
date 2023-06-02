@@ -143,7 +143,9 @@ NOTES:
  *   Rating: 1
  */
 int bitXor(int x, int y) {
-  return 2;
+   int a = ~x&y;
+  int b = ~y&x;
+  return ~(~a&~b);
 }
 /* 
  * tmin - return minimum two's complement integer 
@@ -153,7 +155,7 @@ int bitXor(int x, int y) {
  */
 int tmin(void) {
 
-  return 2;
+  return 1<<31;
 
 }
 //2
@@ -165,7 +167,9 @@ int tmin(void) {
  *   Rating: 1
  */
 int isTmax(int x) {
-  return 2;
+  int a = !(~x);//x为-1(0xffff)的情况,此时a为0x0001
+  return !(~(x+1)^x|a);//如果a为0x0001,此时x为-1,则~(x+1)^x结果为0x1111,则最后的结果为0, 
+  //如果x为其他数,则!(~(x+1)^x|a)的结果和!(~(x+1)^x)的结果相同
 }
 /* 
  * allOddBits - return 1 if all odd-numbered bits in word set to 1
@@ -176,7 +180,11 @@ int isTmax(int x) {
  *   Rating: 2
  */
 int allOddBits(int x) {
-  return 2;
+  int a = 0xAA<<8;
+  int b = a|0xAA;
+  int match = (b<<16)|b;
+  return !((match&x)^match);
+  return 0;
 }
 /* 
  * negate - return -x 
@@ -186,7 +194,7 @@ int allOddBits(int x) {
  *   Rating: 2
  */
 int negate(int x) {
-  return 2;
+  return (~x+1);
 }
 //3
 /* 
@@ -199,7 +207,10 @@ int negate(int x) {
  *   Rating: 3
  */
 int isAsciiDigit(int x) {
-  return 2;
+  int min = 0x30, max = 0x39;
+  int neg = 0x01<<31;
+  return !(((x+(~min+1))&neg)|((max+(~x+1))&neg));
+  // return !(((x+(~min+1))>>31)|((max+(~x+1))>>31));查看符号位
 }
 /* 
  * conditional - same as x ? y : z 
@@ -209,7 +220,8 @@ int isAsciiDigit(int x) {
  *   Rating: 3
  */
 int conditional(int x, int y, int z) {
-  return 2;
+  int a = ((!x)<<31)>>31;//如果x是0则为0xffffffff,如果大于0,则为0
+  return (~a&y)|(a&z);
 }
 /* 
  * isLessOrEqual - if x <= y  then return 1, else return 0 
@@ -218,8 +230,13 @@ int conditional(int x, int y, int z) {
  *   Max ops: 24
  *   Rating: 3
  */
-int isLessOrEqual(int x, int y) {
-  return 2;
+int isLessOrEqual(int x, int y) {//处理溢出: 比如x=-2147483648,y=2147483647此时相减就会溢出
+//当xy符号向同时,相减就不会溢出,符号不同时,相减可能会溢出
+  int xsign = (x>>31)&1;//负数为1,正数为0
+  int ysign = (y>>31)&1;
+  int xor  = xsign^ysign;//符号相同为0,不同为1
+  int diff = (y+(~x+1))>>31;//x大于y则为1,y大于x则为0
+  return (!xor&!diff)|(xor&xsign);//通过xor来做选择
 }
 //4
 /* 
@@ -231,22 +248,39 @@ int isLessOrEqual(int x, int y) {
  *   Rating: 4 
  */
 int logicalNeg(int x) {
-  return 2;
+  int negX = ~x+1;
+  int sign = x|(negX);//让非0的数的符号位永远为1
+  return (sign>>31)+1;//非零的数的sign左移的结果为-1,而0的结果为0
 }
 /* howManyBits - return the minimum number of bits required to represent x in
- *             two's complement
- *  Examples: howManyBits(12) = 5
+ *             two's complement(二进制表示加符号位)
+ *  Examples: howManyBits(12) = 5 (12->+1100)
  *            howManyBits(298) = 10
  *            howManyBits(-5) = 4
  *            howManyBits(0)  = 1
- *            howManyBits(-1) = 1
+ *            howManyBits(-1) = 1 (-1->1111),可以把前面的1都省略
  *            howManyBits(0x80000000) = 32
  *  Legal ops: ! ~ & ^ | + << >>
  *  Max ops: 90
  *  Rating: 4
  */
 int howManyBits(int x) {
-  return 0;
+  int sign = x>>31;
+  x = (sign&~x)|(~sign&x);//如果是负数,得到它的补码,如果是正数,还是它自己
+  //二分法找1出现的最高位
+  int b16,b8,b4,b2,b1,b0;
+  b16 = !!(x>>16)<<4;//如果x的高十六位有值,那么将x向右移动十六位,b16此时是0x10000;否则不移动
+  x = x>>b16;
+  b8 = !!(x>>8)<<3;//开始二分
+  x = x>>b8;
+  b4 = !!(x>>4)<<2;
+  x = x>>b4;
+  b2 = !!(x>>2)<<1;
+  x = x>>b2;
+  b1 = !!(x>>1);
+  x = x>>b1;
+  b0 = x;
+  return b16+b8+b4+b2+b1+b0+1;
 }
 //float
 /* 
@@ -261,6 +295,18 @@ int howManyBits(int x) {
  *   Rating: 4
  */
 unsigned floatScale2(unsigned uf) {
+  unsigned int exp = (uf>>23)&0xFF;
+  unsigned int frac = uf&0x7FFFFF;
+  unsigned int sign = (uf>>31)&0x1;
+  if(exp==0xFF){//exp为255且frac为0,则表示NaN,exp为255,且frac不为0,则表示正负无穷大
+    return uf;
+  }else if(exp==0){//如果是underflow区间
+    frac<<=1;
+    return (sign<<31)|(exp<<23)|frac;
+  }else{//如果是normalized区间
+    exp++;
+    return (sign<<31)|(exp<<23)|frac;
+  }
   return 2;
 }
 /* 
@@ -276,7 +322,23 @@ unsigned floatScale2(unsigned uf) {
  *   Rating: 4
  */
 int floatFloat2Int(unsigned uf) {
-  return 2;
+  unsigned int exp = (uf>>23)&0xFF;
+  unsigned int frac = uf&0x7FFFFF;
+  unsigned int sign = (uf>>31)&0x1;
+  int E = exp-127;
+  frac = frac|(1<<23);//将1.xxx中小数点前面的那个1加上
+  if(E<0) return 0;//1.xxxx除以2为0
+  else if(E>31) return 1<<31;//1往左移动31位,会导致溢出
+  // else if(E)
+  else if(E>=23){
+    frac<<=(E-23);
+  }else{
+    frac>>=(23-E);
+  }
+  if(sign)  return ~frac+1;//取整,只需返回frac
+
+  
+  return frac;
 }
 /* 
  * floatPower2 - Return bit-level equivalent of the expression 2.0^x
@@ -292,5 +354,5 @@ int floatFloat2Int(unsigned uf) {
  *   Rating: 4
  */
 unsigned floatPower2(int x) {
-    return 2;
+  // if( )
 }
